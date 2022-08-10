@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define NUMBER_OF_COMMANDS  5
+
 namespace tflite
 {
     template <unsigned int tOpCount>

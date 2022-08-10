@@ -7,19 +7,11 @@
 #include "tensorflow/lite/version.h"
 
 // approximate working size of our model
-const int kArenaSize = 50000;
+const int kArenaSize = 50*1024;
 
 NeuralNetwork::NeuralNetwork()
 {
     m_error_reporter = new tflite::MicroErrorReporter();
-
-    m_tensor_arena = (uint8_t *)malloc(kArenaSize);
-    if (!m_tensor_arena)
-    {
-        TF_LITE_REPORT_ERROR(m_error_reporter, "Could not allocate arena");
-        return;
-    }
-    TF_LITE_REPORT_ERROR(m_error_reporter, "Loading model");
 
     m_model = tflite::GetModel(converted_model_tflite);
     if (m_model->version() != TFLITE_SCHEMA_VERSION)
@@ -40,6 +32,14 @@ NeuralNetwork::NeuralNetwork()
     m_resolver->AddQuantize();
     m_resolver->AddDequantize();
     m_resolver->AddSoftmax();
+
+    m_tensor_arena = (uint8_t *)malloc(kArenaSize);
+    if (!m_tensor_arena)
+    {
+        TF_LITE_REPORT_ERROR(m_error_reporter, "Could not allocate arena");
+        return;
+    }
+    TF_LITE_REPORT_ERROR(m_error_reporter, "Loading model");
 
     // Build an interpreter to run the model with.
     m_interpreter = new tflite::MicroInterpreter(
@@ -86,7 +86,7 @@ NNResult NeuralNetwork::predict()
     // work out the "best output"
     float best_score = 0;
     int best_index = -1;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < NUMBER_OF_COMMANDS; i++)
     {
         float score = output->data.f[i];
         if (score > best_score)
@@ -97,5 +97,6 @@ NNResult NeuralNetwork::predict()
     }
     return {
         .score = best_score,
-        .index = best_index};
+        .index = best_index
+    };
 }

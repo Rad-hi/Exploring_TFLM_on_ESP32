@@ -1,12 +1,14 @@
 #ifndef _intent_processor_h_
 #define _intent_processor_h_
 
-#include <list>
-class StepperMotor;
-class Servo;
+#define YES               0
+#define OFF               1
+#define LEFT              2
+#define RIGHT             3
 
-class CommandProcessor
-{
+#include <list>
+
+class CommandProcessor{
 private:
     QueueHandle_t m_command_queue_handle;
     void processCommand(uint16_t commandIndex);

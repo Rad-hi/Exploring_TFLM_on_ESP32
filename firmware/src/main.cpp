@@ -2,11 +2,34 @@
 #include <WiFi.h>
 #include <driver/i2s.h>
 #include <esp_task_wdt.h>
-#include "I2SMicSampler.h"
 #include "ADCSampler.h"
 #include "config.h"
 #include "CommandDetector.h"
 #include "CommandProcessor.h"
+#include "display.h"
+
+// "circular buffer" index update
+#define RING(X, MAX) ( (X) >= (MAX) ? 1 : (X) <= 0 ? (MAX)-1 : (X) )
+
+#define NUM_SCREENS     4
+#define NO_COMMAND      -1
+
+// LEDs data
+#define RED             1
+#define BLUE            2
+#define GREEN           3
+
+// Screen selector
+int8_t which = 0;
+int8_t new_command = NO_COMMAND;
+
+SCREEN_t screens[NUM_SCREENS] = {
+                        // on_text, off_text, on, font_size, location(x, y)
+/* Listening screen */    {"Listening ...",                     "Listening ...",       false, FONT_SIZE_SMALLEST, {0, 0}},
+/* Red LED on screen */   {"RED LED is OFF\n(if you say so)",   "Turn RED LED ON ?",   false, FONT_SIZE_SMALLEST, {0, 0}},
+/* Blue LED on screen */  {"BLUE LED is OFF\n(if you say so)",  "Turn BLUE LED ON ?",  false, FONT_SIZE_SMALLEST, {0, 0}},
+/* Green LED on screen */ {"GREEN LED is OFF\n(if you say so)", "Turn GREEN LED ON ?", false, FONT_SIZE_SMALLEST, {0, 0}},  
+};
 
 // i2s config for using the internal ADC
 i2s_config_t adcI2SConfig = {
@@ -22,61 +45,38 @@ i2s_config_t adcI2SConfig = {
     .tx_desc_auto_clear = false,
     .fixed_mclk = 0};
 
-// i2s config for reading from both channels of I2S
-i2s_config_t i2sMemsConfigBothChannels = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate = 16000,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-    .channel_format = I2S_MIC_CHANNEL,
-    .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_I2S),
-    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 4,
-    .dma_buf_len = 64,
-    .use_apll = false,
-    .tx_desc_auto_clear = false,
-    .fixed_mclk = 0};
-
-// i2s microphone pins
-i2s_pin_config_t i2s_mic_pins = {
-    .bck_io_num = I2S_MIC_SERIAL_CLOCK,
-    .ws_io_num = I2S_MIC_LEFT_RIGHT_CLOCK,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = I2S_MIC_SERIAL_DATA};
-
 // This task does all the heavy lifting for our application
-void applicationTask(void *param)
-{
+void applicationTask(void *param){
   CommandDetector *commandDetector = static_cast<CommandDetector *>(param);
 
   const TickType_t xMaxBlockTime = pdMS_TO_TICKS(100);
-  while (true)
-  {
+  while (true){
     // wait for some audio samples to arrive
     uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, xMaxBlockTime);
     if (ulNotificationValue > 0)
-    {
       commandDetector->run();
-    }
   }
 }
 
-void setup()
-{
+void update_led(int8_t which, bool state){
+  switch (which){
+    case RED:   digitalWrite(RED_LED_PIN,   state); break;
+    case BLUE:  digitalWrite(BLUE_LED_PIN,  state); break;
+    case GREEN: digitalWrite(GREEN_LED_PIN, state); break;
+  }
+}
+
+void setup(){
   Serial.begin(115200);
   delay(1000);
   Serial.println("Starting up");
 
   // make sure we don't get killed for our long running tasks
-  esp_task_wdt_init(10, false);
+  esp_task_wdt_init(20, false);
 
-  // start up the I2S input (from either an I2S microphone or Analogue microphone via the ADC)
-#ifdef USE_I2S_MIC_INPUT
-  // Direct i2s input from INMP441 or the SPH0645
-  I2SSampler *i2s_sampler = new I2SMicSampler(i2s_mic_pins, false);
-#else
   // Use the internal ADC
   I2SSampler *i2s_sampler = new ADCSampler(ADC_UNIT_1, ADC_MIC_CHANNEL);
-#endif
+
   // the command processor
   CommandProcessor *command_processor = new CommandProcessor();
 
@@ -87,15 +87,47 @@ void setup()
   TaskHandle_t applicationTaskHandle;
   xTaskCreatePinnedToCore(applicationTask, "Command Detect", 8192, commandDetector, 1, &applicationTaskHandle, 0);
 
-  // start sampling from i2s device - use I2S_NUM_0 as that's the one that supports the internal ADC
-#ifdef USE_I2S_MIC_INPUT
-  i2s_sampler->start(I2S_NUM_0, i2sMemsConfigBothChannels, applicationTaskHandle);
-#else
+
   i2s_sampler->start(I2S_NUM_0, adcI2SConfig, applicationTaskHandle);
-#endif
+
+  initialize_display();
+  hello_display();
+  draw_screen(&screens[0], which);
+
+  pinMode(RED_LED_PIN, OUTPUT);
+  pinMode(BLUE_LED_PIN, OUTPUT);
+  pinMode(GREEN_LED_PIN, OUTPUT);
 }
 
-void loop()
-{
-  vTaskDelay(pdMS_TO_TICKS(1000));
+void loop(){
+  uint32_t time_now = millis();
+
+  static uint32_t last_command_time;
+  if(new_command >= 0){
+    switch(new_command){
+      case YES:   screens[which].on = true;  break;
+      case OFF:   screens[which].on = false; break;
+      case LEFT:  --which; which = RING(which, NUM_SCREENS); break;
+      case RIGHT: ++which; which = RING(which, NUM_SCREENS); break;
+    }
+
+    // Update the LEDs according to the data
+    update_led(which, screens[which].on);
+
+    // Reset flag
+    new_command = NO_COMMAND;
+    last_command_time = time_now;
+  }
+  // Return to listening screen after 10s of no commands
+  else if(time_now - last_command_time > 10000){
+    which = 0;
+  }
+
+  // 5Hz
+  static uint32_t fps;
+  if(time_now - fps >= 200){
+    // Update the screen with the new command
+    draw_screen(&screens[0], which);
+    fps = time_now;
+  }
 }

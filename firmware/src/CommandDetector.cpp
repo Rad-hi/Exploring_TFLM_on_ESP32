@@ -28,10 +28,8 @@ CommandDetector::CommandDetector(I2SSampler *sample_provider, CommandProcessor *
     // create our audio processor
     m_audio_processor = new AudioProcessor(AUDIO_LENGTH, WINDOW_SIZE, STEP_SIZE, POOLING_SIZE);
     // clear down the window
-    for (int i = 0; i < COMMAND_WINDOW; i++)
-    {
-        for (int j = 0; j < NUMBER_COMMANDS; j++)
-        {
+    for (int i = 0; i < COMMAND_WINDOW; i++){
+        for (int j = 0; j < NUMBER_COMMANDS; j++){
             m_scores[i][j] = 0;
         }
     }
@@ -40,8 +38,7 @@ CommandDetector::CommandDetector(I2SSampler *sample_provider, CommandProcessor *
     Serial.println("Created audio processor");
 }
 
-CommandDetector::~CommandDetector()
-{
+CommandDetector::~CommandDetector(){
     delete m_nn;
     m_nn = NULL;
     delete m_audio_processor;
@@ -50,8 +47,7 @@ CommandDetector::~CommandDetector()
     Serial.printf("Free ram after DetectWakeWord cleanup %d\n", free_ram);
 }
 
-void CommandDetector::run()
-{
+void CommandDetector::run(){
     // time how long this takes for stats
     long start = millis();
     // get access to the samples that have been read in
@@ -100,6 +96,7 @@ void CommandDetector::run()
         m_last_detection = start;
         m_command_processor->queueCommand(best_index, best_score);
     }
+    
     // compute the stats
     m_average_detect_time = (end - start) * 0.1 + m_average_detect_time * 0.9;
     m_number_of_runs++;
