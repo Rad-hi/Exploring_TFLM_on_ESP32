@@ -1,25 +1,12 @@
-# Voice-controlled robot model
+# How to train a command word detection model for the ESP32
 
-This folder contains the Jupyter notebooks for creating the training data, training the model, and exporting the model to TensorFlow Lite.
+Your first step would be to generate the dataset.
+Now the problem that I faced with how [atomic14](github.com/atomic14) approached this, is that they generate all spectrograms in memory and then suhffles it and saves it as npz (numpy compressed files). I only have 4Gb of RAM on my laptop, and the data is just bigger, so I had to come up with a way to not load everything into memory. Another problem (before we move on to how I solved these problems) is that his scripts are too static for the sake of his own application (can't blame him, it's his code after all and I'm grateful he shared it), more specifically, if I wanted to train a new model with new keywords (which I did) I couldn't simply tweak the scripts to do so.
+So what I did is:
 
-## Setup
+- Generate a new dataset comprised of .npy files containing the spectrograms of each .wav file (maintaining the structure of the original dataset)
 
-You will need python3 installed - follow the instructions for your platform to get this set up and then create a virtual environment.
-You may have to install the `portaudio` library manually by using the following command `sudo apt-get install portaudio19-dev`. 
-```
-python3 -m venv venv
-. ./venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Running the notebooks
-
-```
-. ./venv/bin/activate
-jupyter notebook .
-```
-
-# The notebooks
+- Allow for a list to be modified (model_classes) that defines the classes the model will train on (the script reads this list and copies files accordingly)
 
 ## Generate Training Data.pynb
 
@@ -46,9 +33,11 @@ The notebook will run through all these samples and output files for the trainin
 
 This will train a model against the training data. This will train on a CPU in 2-3 hours. If you have a suitable GPU this training will be considerably faster.
 
-The training will output a file called `checkpoint.model` every time is sees an improvement in the validation performance and a file called `trained.model` on training completion.
+The training will output ~a file called `checkpoint.model` every time is sees an improvement in the validation performance and~ a file called `trained.model` on training completion.
 
 You can optionally take these and train them on the complete dataset.
+
+The ```train_script.py``` takes in the dataset and generates a suitable dataset that's consumed from disk, not loaded entirely into RAM, saves the model once done, and prints the testing accuracy.
 
 ## Convert Trained Model To TFLite.ipynb
 
